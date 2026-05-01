@@ -1,0 +1,13 @@
+{
+  "siteId": "example.com",
+  "wordpress": {
+    "apiUrl": "https://example.com/wp-json/wp/v2"
+  },
+  "branding": {
+    "companyName": "Your Company Name",
+    "siteTitle": "My WordPress Site"
+  },
+  "contact": {
+    "inquiryUrl": "https://example.com/contact/"
+  }
+}

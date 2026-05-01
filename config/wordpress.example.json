@@ -1,0 +1,12 @@
+{
+  "apiUrl": "https://your-site.com/wp-json/wp/v2",
+  "endpoints": {
+    "posts": "/posts",
+    "pages": "/pages",
+    "media": "/media",
+    "categories": "/categories",
+    "tags": "/tags"
+  },
+  "syncInterval": 3600,
+  "maxPerPage": 100
+}

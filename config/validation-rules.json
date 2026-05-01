@@ -1,0 +1,76 @@
+{
+  "title": {
+    "minLength": 10,
+    "maxLength": 60,
+    "formatPattern": "^【(お知らせ|リリース|開設)】",
+    "categories": {
+      "お知らせ": ["記事公開", "一般告知", "note記事"],
+      "リリース": ["製品", "サービス", "機能"],
+      "開設": ["チャンネル", "サービス", "サイト"]
+    }
+  },
+  "structure": {
+    "requiredSections": {
+      "introduction": {
+        "required": true,
+        "minLength": 50,
+        "description": "導入文（50文字以上）"
+      },
+      "body": {
+        "required": true,
+        "minParagraphs": 2,
+        "description": "本文（2段落以上）"
+      },
+      "companyInfo": {
+        "required": true,
+        "keywords": ["ITクオリティ株式会社"],
+        "description": "会社情報"
+      },
+      "contact": {
+        "required": true,
+        "keywords": ["お問い合わせ", "inquiry"],
+        "description": "お問い合わせ情報"
+      }
+    }
+  },
+  "markdown": {
+    "headings": {
+      "h1": { "max": 1, "required": false },
+      "h2": { "min": 1, "recommended": true },
+      "h3": { "unlimited": true }
+    },
+    "links": {
+      "format": "\\[([^\\]]+)\\]\\(([^\\)]+)\\)",
+      "checkExternal": true,
+      "allowedDomains": ["itq.co.jp", "note.com", "github.com"]
+    },
+    "images": {
+      "format": "!\\[([^\\]]*)\\]\\(([^\\)]+)\\)",
+      "altRequired": true,
+      "maxSize": "1MB"
+    }
+  },
+  "seo": {
+    "titleLength": { "min": 10, "max": 60 },
+    "headingHierarchy": true,
+    "keywordDensity": { "max": 3 },
+    "metaDescription": { "recommended": true, "maxLength": 155 }
+  },
+  "content": {
+    "tone": {
+      "politeForm": true,
+      "consistency": true,
+      "pattern": "(です|ます|である|だ)。"
+    },
+    "readability": {
+      "maxSentenceLength": 100,
+      "maxParagraphLength": 200,
+      "minWordCount": 200
+    }
+  },
+  "validation": {
+    "strictMode": false,
+    "warningAsError": false,
+    "skipWarnings": ["link-slow-response"]
+  }
+}

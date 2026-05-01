@@ -1,0 +1,39 @@
+{
+  "name": "wp-content-manager",
+  "version": "1.0.0",
+  "description": "WordPress multisite content management system using Claude Code and REST API",
+  "main": "index.js",
+  "scripts": {
+    "sync": "node scripts/sync-content.js",
+    "create-announcement": "node scripts/generators/create-announcement.js",
+    "test-wp-connection": "node scripts/test-wp-connection.js",
+    "update-post": "node scripts/update-post.js",
+    "check-permissions": "node scripts/check-user-permissions.js",
+    "debug-auth": "node scripts/debug-api-auth.js",
+    "batch-convert": "node scripts/batch-convert-posts.js",
+    "batch-update": "node scripts/batch-update-wordpress.js",
+    "create-post": "node scripts/create-wordpress-post.js",
+    "enhanced-sync": "node scripts/enhanced-sync-content.js",
+    "test-error-handling": "node scripts/test-error-handling.js",
+    "validate-draft": "node scripts/validate-draft.js",
+    "validate-all": "node scripts/validate-draft.js all",
+    "smart-publish": "node scripts/smart-publish.js",
+    "x-daily-post": "node scripts/x-daily-post.js",
+    "x-dry-run": "node scripts/x-daily-post.js --dry-run"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "glob": "^11.0.3"
+  },
+  "keywords": [
+    "wordpress",
+    "cms",
+    "content-management",
+    "rest-api",
+    "claude-code",
+    "multisite"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs"
+}

@@ -1,0 +1,31 @@
+# Credentials - never commit these
+.env
+config/wordpress.json
+config/sites/*.json
+!config/sites/index.json
+!config/sites/example.com.json
+
+# Content data - site-specific, not for version control
+content/sites/*/posts/
+content/sites/*/pages/
+content/sites/*/media/original/
+
+# Runtime
+node_modules/
+logs/*
+!logs/.gitkeep
+
+# Drafts - local working files
+drafts/*.md
+!drafts/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Claude Code local settings
+.claude/settings.local.json

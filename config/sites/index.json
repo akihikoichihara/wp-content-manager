@@ -1,0 +1,22 @@
+{
+  "description": "WordPress CMS site registry - list of managed sites",
+  "version": "1.0.0",
+  "lastUpdated": "2026-01-01",
+
+  "defaultSite": "example.com",
+
+  "sites": {
+    "example.com": {
+      "name": "My WordPress Site",
+      "status": "active",
+      "configFile": "example.com.json",
+      "description": "My main WordPress site",
+      "addedAt": "2026-01-01"
+    }
+  },
+
+  "notes": [
+    "To add a new site, create config/sites/{site-id}.json and register it here.",
+    "status: active | inactive | archived"
+  ]
+}
