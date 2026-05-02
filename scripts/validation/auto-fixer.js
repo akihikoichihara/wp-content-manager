@@ -1,3 +1,19 @@
+/**
+ * auto-fixer.js
+ *
+ * Analyses validation results and generates actionable fix suggestions.
+ * Fixes fall into two types:
+ *
+ *  'auto'   - Can be applied programmatically without human review
+ *             (whitespace normalization, duplicate punctuation removal)
+ *  'manual' - Require human judgment (title rewording, broken link repair,
+ *             image alt-text authoring)
+ *
+ * applyAutoFixes() applies only 'auto' fixes to the content string and returns
+ * the modified content along with a list of what was changed.
+ * 'manual' fixes are surfaced as suggestions in generateFixReport().
+ */
+
 const fs = require('fs').promises;
 
 class AutoFixer {
@@ -8,6 +24,14 @@ class AutoFixer {
     };
   }
 
+  /**
+   * Walks the validation result's errors and warnings arrays and generates
+   * a fix object for each issue that has a known remediation strategy.
+   *
+   * @param {string} content            - Original Markdown content
+   * @param {Object} validationResult   - Result object from MarkdownValidator
+   * @returns {Promise<{autoFixes: Object[], manualFixes: Object[], suggestions: Object[]}>}
+   */
   async analyzeAndSuggestFixes(content, validationResult) {
     const fixes = {
       autoFixes: [],
@@ -15,7 +39,6 @@ class AutoFixer {
       suggestions: []
     };
 
-    // Analyze validation issues and generate fixes
     for (const error of validationResult.errors) {
       const fix = this.generateFix(error, content);
       if (fix) {
@@ -37,11 +60,22 @@ class AutoFixer {
     return fixes;
   }
 
+  /**
+   * Maps a single validation error to a fix descriptor. Returns null when no
+   * known fix strategy exists for the error type.
+   *
+   * Fix type is 'manual' for all content-level issues (title wording, link URLs,
+   * image alt text) because those require editorial judgment that cannot be
+   * automated safely.
+   *
+   * @param {Object} error   - Error object with { category, message }
+   * @param {string} content - Current content (may be used for context in future)
+   * @returns {Object|null}  Fix descriptor or null
+   */
   generateFix(error, content) {
     const category = error.category;
     const message = error.message;
 
-    // Title fixes
     if (category === 'title') {
       if (message.includes('統一フォーマット')) {
         return {
@@ -52,7 +86,7 @@ class AutoFixer {
           example: '例: # 【お知らせ】新機能リリースのお知らせ'
         };
       }
-      
+
       if (message.includes('長すぎます')) {
         return {
           type: 'manual',
@@ -68,7 +102,6 @@ class AutoFixer {
       }
     }
 
-    // Link fixes
     if (category === 'links') {
       if (message.includes('リンク切れ')) {
         const url = this.extractUrlFromMessage(message);
@@ -86,7 +119,6 @@ class AutoFixer {
       }
     }
 
-    // Image fixes
     if (category === 'images') {
       if (message.includes('Alt属性')) {
         return {
@@ -106,6 +138,15 @@ class AutoFixer {
     return null;
   }
 
+  /**
+   * Maps a single validation warning to an improvement suggestion.
+   * Suggestions are lower-priority than fixes; they improve quality but
+   * do not block publication.
+   *
+   * @param {Object} warning  - Warning object with { category, message }
+   * @param {string} content
+   * @returns {Object|null}
+   */
   generateSuggestion(warning, content) {
     const category = warning.category;
     const message = warning.message;
@@ -171,6 +212,15 @@ ITクオリティ株式会社では、[具体的な内容]について[背景・
     return null;
   }
 
+  /**
+   * Applies all 'auto' type fixes to the content string sequentially.
+   * Skips a fix silently if it throws (rather than aborting the whole run),
+   * so a buggy fix implementation does not prevent valid fixes from applying.
+   *
+   * @param {string} content                    - Original content
+   * @param {{autoFixes: Object[]}} fixes       - From analyzeAndSuggestFixes()
+   * @returns {Promise<{content: string, appliedFixes: Object[], totalFixes: number}>}
+   */
   async applyAutoFixes(content, fixes) {
     let fixedContent = content;
     const appliedFixes = [];
@@ -194,23 +244,23 @@ ITクオリティ株式会社では、[具体的な内容]について[背景・
     };
   }
 
+  /**
+   * Dispatches a single auto-fix by type.
+   * Returns { success: false } for unimplemented types so callers can
+   * distinguish "attempted but failed" from "not supported".
+   *
+   * @param {string} content
+   * @param {Object} fix - Fix descriptor with a `type` field
+   * @returns {Promise<{success: boolean, content: string, reason?: string}>}
+   */
   async applyFix(content, fix) {
-    // This is a placeholder for auto-fix implementation
-    // In a real implementation, you'd have specific fix logic for each type
-    
     switch (fix.type) {
       case 'whitespace':
-        return {
-          success: true,
-          content: this.fixWhitespace(content)
-        };
-      
+        return { success: true, content: this.fixWhitespace(content) };
+
       case 'punctuation':
-        return {
-          success: true,
-          content: this.fixPunctuation(content)
-        };
-      
+        return { success: true, content: this.fixPunctuation(content) };
+
       default:
         return {
           success: false,
@@ -220,29 +270,60 @@ ITクオリティ株式会社では、[具体的な内容]について[背景・
     }
   }
 
+  /**
+   * Normalizes whitespace in Markdown content:
+   *  - Collapses 3+ consecutive blank lines to 2 (Markdown standard)
+   *  - Removes trailing whitespace on each line
+   *  - Removes leading whitespace (preserves intentional code indentation
+   *    only if the caller excludes code blocks before calling this)
+   *
+   * @param {string} content
+   * @returns {string}
+   */
   fixWhitespace(content) {
-    // Fix common whitespace issues
     return content
-      .replace(/\n{3,}/g, '\n\n')  // Max 2 consecutive newlines
-      .replace(/[ \t]+$/gm, '')    // Remove trailing whitespace
-      .replace(/^[ \t]+/gm, '')    // Remove leading whitespace (except intended indentation)
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]+$/gm, '')
+      .replace(/^[ \t]+/gm, '')
       .trim();
   }
 
+  /**
+   * Fixes common Japanese punctuation issues:
+   *  - Duplicate 。or 、 (e.g. "です。。" → "です。")
+   *  - Space before Japanese sentence-ending punctuation
+   *  - Ensures a newline follows sentence-ending characters (。！？)
+   *    for cleaner paragraph splitting in downstream processors
+   *
+   * @param {string} content
+   * @returns {string}
+   */
   fixPunctuation(content) {
-    // Fix common punctuation issues in Japanese
     return content
-      .replace(/。\s*。/g, '。')    // Remove duplicate periods
-      .replace(/、\s*、/g, '、')    // Remove duplicate commas
-      .replace(/\s+([。、！？])/g, '$1')  // Remove space before punctuation
-      .replace(/([。！？])\s*\n/g, '$1\n'); // Ensure newline after sentence end
+      .replace(/。\s*。/g, '。')
+      .replace(/、\s*、/g, '、')
+      .replace(/\s+([。、！？])/g, '$1')
+      .replace(/([。！？])\s*\n/g, '$1\n');
   }
 
+  /**
+   * Extracts the first HTTP/HTTPS URL from a validation message string.
+   *
+   * @param {string} message
+   * @returns {string} URL string, or empty string if none found
+   */
   extractUrlFromMessage(message) {
     const urlMatch = message.match(/https?:\/\/[^\s)]+/);
     return urlMatch ? urlMatch[0] : '';
   }
 
+  /**
+   * Builds a human-readable fix report string for console output.
+   *
+   * @param {Object} fixes       - From analyzeAndSuggestFixes()
+   * @param {Object[]} appliedFixes - From applyAutoFixes()
+   * @returns {string}
+   */
   generateFixReport(fixes, appliedFixes) {
     let report = '\n🔧 修正提案レポート\n';
     report += '========================\n\n';
@@ -283,10 +364,16 @@ ITクオリティ株式会社では、[具体的な内容]について[背景・
     return report;
   }
 
+  /**
+   * Generates suggested npm commands for the most common fix categories.
+   * Link and SEO commands are placeholders for features not yet implemented.
+   *
+   * @param {Object} fixes - From analyzeAndSuggestFixes()
+   * @returns {string[]} Array of command strings
+   */
   generateQuickFixCommands(fixes) {
     const commands = [];
-    
-    // Generate npm script suggestions for common fixes
+
     if (fixes.manualFixes.some(f => f.category === 'title')) {
       commands.push('# タイトル修正後、再検証');
       commands.push('npm run validate-draft <filename>');

@@ -1,9 +1,21 @@
+/**
+ * update-post.js
+ *
+ * Pushes a single locally-edited post back to WordPress.
+ * The post must already exist as content/sites/{siteId}/posts/by-id/{id}-reformatted.json
+ * (produced by batch-convert-posts.js or manual editing).
+ *
+ * Usage:
+ *   npm run update-post <post-id>
+ *   node scripts/update-post.js 42
+ */
+
 require('dotenv').config();
 const UnifiedWordPressClient = require('../src/unified-wordpress-client');
 
 async function updatePost() {
   const args = process.argv.slice(2);
-  
+
   if (args.length === 0) {
     console.log('Usage: node scripts/update-post.js <post-id>');
     console.log('Example: node scripts/update-post.js 6');
@@ -11,37 +23,38 @@ async function updatePost() {
   }
 
   const postId = args[0];
-  
+
   try {
     const client = new UnifiedWordPressClient();
-    
-    // Test connection first
+
+    // Verify the API is reachable before attempting the update to avoid
+    // partial-write scenarios where the request times out mid-flight.
     const connected = await client.testConnection();
     if (!connected) {
       console.error('Failed to connect to WordPress API. Please check your credentials.');
       process.exit(1);
     }
-    
-    // Update the post
+
+    // Reads {id}-reformatted.json, applies title/content/excerpt to the live post
     const result = await client.updatePostFromReformattedFile(postId);
-    
+
     console.log('\n=== Update Summary ===');
     console.log(`Post ID: ${result.id}`);
     console.log(`Title: ${result.title.rendered}`);
     console.log(`Modified: ${result.modified}`);
     console.log(`URL: ${result.link}`);
     console.log('\n✅ Post updated successfully!');
-    
+
   } catch (error) {
     console.error('\n❌ Update failed:', error.message);
-    
+
     if (error.message.includes('credentials')) {
       console.log('\n💡 Setup instructions:');
       console.log('1. Copy .env.example to .env');
       console.log('2. Set your WordPress username and application password');
       console.log('3. Run the script again');
     }
-    
+
     process.exit(1);
   }
 }

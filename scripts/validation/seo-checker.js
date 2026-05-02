@@ -1,20 +1,46 @@
+/**
+ * seo-checker.js
+ *
+ * SEO quality checks for Japanese WordPress announcement content.
+ * Scores the following dimensions and returns a combined SEO score:
+ *
+ *  - Title length and descriptiveness
+ *  - Heading structure (H1 uniqueness, H2 presence, hierarchy)
+ *  - Content quality (word count, sentence length)
+ *  - Keyword density (extracted from the title, checked in the body)
+ *  - Link structure (internal vs external counts, descriptive link text)
+ *  - Readability (average sentence length, complex sentence ratio)
+ *
+ * Scoring formula (calculateSEOScore):
+ *   base 0 + (successes × 8) − (errors × 15) − (recommendations × 5)
+ *   Clamped to [0, 100].
+ *
+ * Note on Japanese "word count":
+ *   Standard word-count metrics assume space-delimited words (English).
+ *   For Japanese, countWords() returns the character count of the content
+ *   after stripping Markdown syntax, which correlates better with reading time.
+ */
+
 class SEOChecker {
+  /**
+   * @param {Object} [rules] - Override default rule thresholds
+   */
   constructor(rules = {}) {
     this.rules = {
       title: {
         minLength: 10,
         maxLength: 60,
-        keywordDensity: 3
+        keywordDensity: 3  // max occurrences in title (not currently enforced)
       },
       headings: {
         h1: { max: 1, required: true },
         h2: { min: 1, recommended: true },
-        hierarchy: true
+        hierarchy: true  // warn when heading levels skip (e.g. H1 → H3)
       },
       content: {
         minWordCount: 200,
-        maxSentenceLength: 100,
-        keywordDensity: { min: 1, max: 3 }
+        maxSentenceLength: 100,  // characters; Japanese sentences tend to be longer
+        keywordDensity: { min: 1, max: 3 }  // percentage range for primary keywords
       },
       links: {
         minInternal: 1,
@@ -25,6 +51,13 @@ class SEOChecker {
     };
   }
 
+  /**
+   * Runs all SEO checks and returns a consolidated result.
+   *
+   * @param {string} content  - Markdown content string
+   * @param {string} [title]  - H1 title text; extracted from content if omitted
+   * @returns {Promise<Object>} Result with score, issues, recommendations, successes
+   */
   async checkSEO(content, title = null) {
     const results = {
       score: 0,
@@ -35,13 +68,11 @@ class SEOChecker {
       details: {}
     };
 
-    // Extract title from content if not provided
     if (!title) {
       const titleMatch = content.match(/^#\s+(.+)$/m);
       title = titleMatch ? titleMatch[1].trim() : '';
     }
 
-    // Run SEO checks
     await this.checkTitle(title, results);
     await this.checkHeadingStructure(content, results);
     await this.checkContentQuality(content, results);
@@ -49,21 +80,23 @@ class SEOChecker {
     await this.checkLinksAndStructure(content, results);
     await this.checkReadability(content, results);
 
-    // Calculate final score
     results.score = this.calculateSEOScore(results);
 
     return results;
   }
 
+  /**
+   * Checks title length and descriptiveness.
+   * A title is considered descriptive if it contains action/subject words
+   * (方法, 解説, etc.) or is longer than 20 characters — the assumption being
+   * that longer titles tend to be more specific.
+   *
+   * @param {string} title
+   * @param {Object} results - Mutable results object
+   */
   async checkTitle(title, results) {
-    const titleSection = {
-      title,
-      length: title.length,
-      issues: [],
-      score: 0
-    };
+    const titleSection = { title, length: title.length, issues: [], score: 0 };
 
-    // Length check
     if (title.length < this.rules.title.minLength) {
       titleSection.issues.push(`タイトルが短すぎます（${title.length}文字 < ${this.rules.title.minLength}文字）`);
       results.issues.push({ category: 'title', severity: 'error', message: titleSection.issues[titleSection.issues.length - 1] });
@@ -75,7 +108,6 @@ class SEOChecker {
       results.successes.push({ category: 'title', message: `タイトル長適切（${title.length}文字）` });
     }
 
-    // Descriptive check
     if (this.isDescriptiveTitle(title)) {
       titleSection.score += 20;
       results.successes.push({ category: 'title', message: '具体的で分かりやすいタイトル' });
@@ -87,6 +119,14 @@ class SEOChecker {
     results.details.title = titleSection;
   }
 
+  /**
+   * Validates heading count and structural hierarchy.
+   * Hierarchy check warns when a level is skipped (e.g. H1 directly to H3),
+   * which can confuse screen readers and search engine parsers.
+   *
+   * @param {string} content
+   * @param {Object} results
+   */
   async checkHeadingStructure(content, results) {
     const headings = this.extractHeadings(content);
     const structure = {
@@ -98,7 +138,6 @@ class SEOChecker {
       issues: []
     };
 
-    // H1 check
     if (structure.h1 === 0) {
       structure.issues.push('H1見出しが必要です');
       results.issues.push({ category: 'headings', severity: 'error', message: 'H1見出しが必要です' });
@@ -109,7 +148,6 @@ class SEOChecker {
       results.successes.push({ category: 'headings', message: 'H1見出し適切' });
     }
 
-    // H2 check
     if (structure.h2 < this.rules.headings.h2.min) {
       structure.issues.push(`H2見出しを追加してください（現在${structure.h2}個 < 推奨${this.rules.headings.h2.min}個）`);
       results.recommendations.push({ category: 'headings', message: structure.issues[structure.issues.length - 1] });
@@ -117,7 +155,6 @@ class SEOChecker {
       results.successes.push({ category: 'headings', message: `見出し構造良好（H2×${structure.h2}）` });
     }
 
-    // Hierarchy check
     if (this.rules.headings.hierarchy) {
       const hierarchyIssues = this.checkHeadingHierarchy(headings);
       if (hierarchyIssues.length > 0) {
@@ -132,6 +169,14 @@ class SEOChecker {
     results.details.headings = structure;
   }
 
+  /**
+   * Checks word count and flags sentences longer than maxSentenceLength characters.
+   * Long Japanese sentences are harder to read; splitting them improves both
+   * readability scores and search engine comprehension.
+   *
+   * @param {string} content
+   * @param {Object} results
+   */
   async checkContentQuality(content, results) {
     const words = this.countWords(content);
     const sentences = this.countSentences(content);
@@ -145,7 +190,6 @@ class SEOChecker {
       issues: []
     };
 
-    // Word count check
     if (words < this.rules.content.minWordCount) {
       quality.issues.push(`文字数が不足しています（${words}文字 < ${this.rules.content.minWordCount}文字）`);
       results.recommendations.push({ category: 'content', message: quality.issues[quality.issues.length - 1] });
@@ -153,19 +197,32 @@ class SEOChecker {
       results.successes.push({ category: 'content', message: `文字数適切（${words}文字）` });
     }
 
-    // Sentence length check
     const longSentences = this.findLongSentences(content, this.rules.content.maxSentenceLength);
     if (longSentences.length > 0) {
       quality.issues.push(`長すぎる文があります（${longSentences.length}件）`);
-      results.recommendations.push({ 
-        category: 'content', 
-        message: `文を短くしてください（${this.rules.content.maxSentenceLength}文字以内推奨）` 
+      results.recommendations.push({
+        category: 'content',
+        message: `文を短くしてください（${this.rules.content.maxSentenceLength}文字以内推奨）`
       });
     }
 
     results.details.content = quality;
   }
 
+  /**
+   * Extracts keywords from the title and calculates how often each appears
+   * in the body content (keyword density = occurrences / total_chars × 100).
+   *
+   * Density too low → content may not be topically focused.
+   * Density too high → may read as keyword stuffing.
+   *
+   * Common Japanese particles (の, は, が, etc.) are excluded from keywords
+   * because they appear in almost every sentence and provide no SEO signal.
+   *
+   * @param {string} content
+   * @param {string} title
+   * @param {Object} results
+   */
   async checkKeywordOptimization(content, title, results) {
     const keywords = this.extractKeywords(title);
     const optimization = {
@@ -174,7 +231,6 @@ class SEOChecker {
       issues: []
     };
 
-    // Calculate keyword density
     keywords.forEach(keyword => {
       const density = this.calculateKeywordDensity(content, keyword);
       optimization.keywordDensity[keyword] = density;
@@ -193,6 +249,16 @@ class SEOChecker {
     results.details.keywords = optimization;
   }
 
+  /**
+   * Checks internal/external link balance and link text quality.
+   * Generic link texts ("こちら", "ここ") provide no SEO value and are flagged.
+   *
+   * Internal links are identified by a leading "/" or by matching the WP_DOMAIN
+   * env variable (for absolute internal URLs).
+   *
+   * @param {string} content
+   * @param {Object} results
+   */
   async checkLinksAndStructure(content, results) {
     const links = this.extractLinks(content);
     const structure = {
@@ -203,19 +269,16 @@ class SEOChecker {
       issues: []
     };
 
-    // Internal links check
     if (structure.internalLinks < this.rules.links.minInternal) {
       structure.issues.push(`内部リンクを追加してください（現在${structure.internalLinks}件 < 推奨${this.rules.links.minInternal}件）`);
       results.recommendations.push({ category: 'links', message: structure.issues[structure.issues.length - 1] });
     }
 
-    // External links check
     if (structure.externalLinks > this.rules.links.maxExternal) {
       structure.issues.push(`外部リンクが多すぎます（${structure.externalLinks}件 > 推奨${this.rules.links.maxExternal}件）`);
       results.recommendations.push({ category: 'links', message: structure.issues[structure.issues.length - 1] });
     }
 
-    // Descriptive link text check
     const nonDescriptiveLinks = structure.totalLinks - structure.descriptiveLinks;
     if (nonDescriptiveLinks > 0) {
       structure.issues.push(`リンクテキストをより具体的にしてください（${nonDescriptiveLinks}件）`);
@@ -229,6 +292,23 @@ class SEOChecker {
     results.details.links = structure;
   }
 
+  /**
+   * Computes a simplified readability score for Japanese content.
+   *
+   * Scoring heuristic (starts at 100):
+   *  - avgSentenceLength > 50 chars: −20
+   *  - avgSentenceLength > 30 chars: −10
+   *  - complexSentences / totalSentences > 0.5: −15
+   *  - complexSentences / totalSentences > 0.3: −8
+   *
+   * "Complex sentence" is approximated by counting 読点 (、) as a clause separator.
+   * This is intentionally rough — a full dependency parser is not warranted here.
+   *
+   * Scores below 60 are flagged as recommendations (not errors).
+   *
+   * @param {string} content
+   * @param {Object} results
+   */
   async checkReadability(content, results) {
     const readability = {
       avgSentenceLength: this.calculateAverageSentenceLength(content),
@@ -238,7 +318,6 @@ class SEOChecker {
       issues: []
     };
 
-    // Calculate readability score (simplified)
     readability.readabilityScore = this.calculateReadabilityScore(content);
 
     if (readability.readabilityScore < 60) {
@@ -251,7 +330,14 @@ class SEOChecker {
     results.details.readability = readability;
   }
 
-  // Helper methods
+  // ─── Helper methods ───────────────────────────────────────────────────────
+
+  /**
+   * Extracts all headings with their level and line number.
+   *
+   * @param {string} content
+   * @returns {Array<{level: number, text: string, line: number}>}
+   */
   extractHeadings(content) {
     const headingPattern = /^(#+)\s+(.+)$/gm;
     const headings = [];
@@ -268,6 +354,12 @@ class SEOChecker {
     return headings;
   }
 
+  /**
+   * Detects non-sequential heading levels (e.g. H1 → H3 without H2).
+   *
+   * @param {Array<{level: number}>} headings
+   * @returns {string[]} Issue messages
+   */
   checkHeadingHierarchy(headings) {
     const issues = [];
     let lastLevel = 0;
@@ -282,40 +374,80 @@ class SEOChecker {
     return issues;
   }
 
+  /**
+   * Counts meaningful characters in the content (used as a proxy for "words"
+   * in Japanese where spaces don't separate words).
+   *
+   * @param {string} content
+   * @returns {number} Character count after stripping Markdown syntax
+   */
   countWords(content) {
-    // Remove markdown syntax and count characters (for Japanese)
     const cleanContent = content.replace(/[#*\[\]()]/g, '').trim();
     return cleanContent.length;
   }
 
+  /**
+   * Counts sentences by looking for Japanese sentence-ending punctuation.
+   *
+   * @param {string} content
+   * @returns {number}
+   */
   countSentences(content) {
     return (content.match(/[。！？]/g) || []).length;
   }
 
+  /** @param {string} content @returns {number} */
   countParagraphs(content) {
     return content.split(/\n\s*\n/).filter(p => p.trim()).length;
   }
 
+  /**
+   * Returns sentences that exceed maxLength characters.
+   *
+   * @param {string} content
+   * @param {number} maxLength
+   * @returns {string[]}
+   */
   findLongSentences(content, maxLength) {
     const sentences = content.split(/[。！？]/).filter(s => s.trim());
     return sentences.filter(s => s.length > maxLength);
   }
 
+  /**
+   * Extracts meaningful words from the title for keyword density analysis.
+   * Filters out single-character tokens and common Japanese particles/brackets
+   * that carry no SEO weight.
+   *
+   * @param {string} title
+   * @returns {string[]}
+   */
   extractKeywords(title) {
-    // Simple keyword extraction (remove common words)
     const commonWords = ['の', 'は', 'が', 'を', 'に', 'で', 'と', 'から', 'まで', '【', '】'];
-    const words = title.split(/[\s、。！？]+/).filter(word => 
+    const words = title.split(/[\s、。！？]+/).filter(word =>
       word.length > 1 && !commonWords.includes(word)
     );
     return words;
   }
 
+  /**
+   * Calculates keyword density as (occurrences / total_characters) × 100.
+   *
+   * @param {string} content
+   * @param {string} keyword
+   * @returns {string} Percentage with 2 decimal places
+   */
   calculateKeywordDensity(content, keyword) {
     const total = this.countWords(content);
     const occurrences = (content.match(new RegExp(keyword, 'gi')) || []).length;
     return total > 0 ? ((occurrences / total) * 100).toFixed(2) : 0;
   }
 
+  /**
+   * Extracts all Markdown links and classifies them.
+   *
+   * @param {string} content
+   * @returns {Array<{text: string, url: string, type: string}>}
+   */
   extractLinks(content) {
     const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
     const links = [];
@@ -323,16 +455,19 @@ class SEOChecker {
 
     while ((match = linkPattern.exec(content)) !== null) {
       const url = match[2];
-      links.push({
-        text: match[1],
-        url: url,
-        type: this.getLinkType(url)
-      });
+      links.push({ text: match[1], url: url, type: this.getLinkType(url) });
     }
 
     return links;
   }
 
+  /**
+   * Classifies a link URL as internal or external.
+   * Uses WP_DOMAIN env var to identify absolute internal URLs.
+   *
+   * @param {string} url
+   * @returns {'anchor'|'internal'|'external'|'relative'}
+   */
   getLinkType(url) {
     if (url.startsWith('#')) return 'anchor';
     if (url.startsWith('/') || url.includes(process.env.WP_DOMAIN || 'your-site.com')) return 'internal';
@@ -340,65 +475,98 @@ class SEOChecker {
     return 'relative';
   }
 
+  /**
+   * Returns false for generic link texts that provide no SEO or UX value.
+   *
+   * @param {string} text - Link anchor text
+   * @returns {boolean}
+   */
   isDescriptiveLink(text) {
     const nonDescriptive = ['こちら', 'ここ', 'click here', 'read more', 'リンク'];
     return !nonDescriptive.some(word => text.toLowerCase().includes(word.toLowerCase()));
   }
 
+  /**
+   * Returns true for titles that contain explicit subject/action words or
+   * are long enough to be inherently specific (> 20 chars).
+   *
+   * @param {string} title
+   * @returns {boolean}
+   */
   isDescriptiveTitle(title) {
-    // Check if title contains specific, descriptive words
     const descriptiveWords = ['方法', '手順', '解説', '紹介', '実装', '構築', '開発', '作成'];
     return descriptiveWords.some(word => title.includes(word)) || title.length > 20;
   }
 
+  /** @param {string} content @returns {number} */
   calculateAverageSentenceLength(content) {
     const sentences = this.countSentences(content);
     const words = this.countWords(content);
     return sentences > 0 ? Math.round(words / sentences) : 0;
   }
 
+  /**
+   * Approximates complex sentence count by counting 読点 (、).
+   * Each 、 is assumed to introduce a subordinate clause.
+   *
+   * @param {string} content
+   * @returns {number}
+   */
   countComplexSentences(content) {
-    // Count sentences with multiple clauses (simplified)
     return (content.match(/[、]/g) || []).length;
   }
 
+  /**
+   * Counts passive-voice patterns in Japanese (られる, される, れる).
+   * High passive-voice usage correlates with harder-to-read text.
+   *
+   * @param {string} content
+   * @returns {number}
+   */
   countPassiveVoice(content) {
-    // Japanese passive voice patterns (simplified)
     return (content.match(/(られる|される|れる)/g) || []).length;
   }
 
+  /**
+   * Computes a simplified readability score for Japanese content (0–100).
+   * See checkReadability() for the penalty schedule.
+   *
+   * @param {string} content
+   * @returns {number}
+   */
   calculateReadabilityScore(content) {
-    // Simplified readability score for Japanese content
     const avgSentenceLength = this.calculateAverageSentenceLength(content);
     const complexSentences = this.countComplexSentences(content);
     const totalSentences = this.countSentences(content);
-    
+
     let score = 100;
-    
-    // Penalize long sentences
+
     if (avgSentenceLength > 50) score -= 20;
     else if (avgSentenceLength > 30) score -= 10;
-    
-    // Penalize complex sentences
+
     const complexRatio = totalSentences > 0 ? (complexSentences / totalSentences) : 0;
     if (complexRatio > 0.5) score -= 15;
     else if (complexRatio > 0.3) score -= 8;
-    
+
     return Math.max(0, score);
   }
 
+  /**
+   * Aggregates the SEO sub-scores into a single 0–100 score.
+   *
+   * Formula: (successes × 8) − (errors × 15) − (recommendations × 5)
+   *
+   * @param {Object} results
+   * @returns {number}
+   */
   calculateSEOScore(results) {
     let score = 0;
-    const maxScore = 100;
-    
-    // Base score from successes
+
     score += results.successes.length * 8;
-    
-    // Penalties for issues
     score -= results.issues.filter(i => i.severity === 'error').length * 15;
     score -= results.recommendations.length * 5;
-    
-    return Math.max(0, Math.min(maxScore, score));
+
+    return Math.max(0, Math.min(100, score));
   }
 }
 
